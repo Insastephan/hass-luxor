@@ -1,25 +1,30 @@
-# Base component constants
+"""Constants for the FXLuminaire Luxor integration."""
+from homeassistant.const import Platform
+
 NAME = "FXLuminaire Luxor"
 DOMAIN = "luxor"
-DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.0.2"
-ISSUE_URL = "https://github.com/dcramer/hass-luxor/issues"
+MANUFACTURER = "FXLuminaire"
+ISSUE_URL = "https://github.com/Insastephan/hass-luxor/issues"
 
-# Platforms
-LIGHT = "light"
-SCENE = "scene"
-PLATFORMS = [LIGHT, SCENE]
+# Kept from the original integration so existing devices keep their identity.
+LIGHT_DEVICE_DOMAIN = "luxor_light"
 
-# Configuration and options
+PLATFORMS = [Platform.LIGHT, Platform.SCENE]
+
+# Configuration (entry.data) and options (entry.options)
 CONF_HOST = "host"
 CONF_GROUP_INTERVAL = "group_interval"
 CONF_THEME_INTERVAL = "theme_interval"
+CONF_SEND_INTERVAL = "send_interval"
+CONF_REQUEST_TIMEOUT = "request_timeout"
+CONF_COALESCE_EXTINGUISH = "coalesce_extinguish"
 
-# Defaults
-DEFAULT_NAME = DOMAIN
 DEFAULT_GROUP_INTERVAL = 60
 DEFAULT_THEME_INTERVAL = 600
+DEFAULT_SEND_INTERVAL = 1.0
+DEFAULT_REQUEST_TIMEOUT = 3.0
+DEFAULT_COALESCE_EXTINGUISH = True
 
-# How long to wait to actually do the refresh after requesting it.
-# We wait some time so if we control multiple lights, we batch requests.
-REQUEST_REFRESH_DELAY = 0.3
+# Wait before re-reading the controller after a scene was switched, so the
+# fixtures have reached their new intensities.
+SCENE_SETTLE_DELAY = 1.5

@@ -1,114 +1,108 @@
-import logging
+"""Luxor themes as Home Assistant scenes."""
+from __future__ import annotations
 
-from datetime import timedelta
-from functools import partial
+from typing import Any
 
-from homeassistant.core import callback
 from homeassistant.components.scene import Scene
-from homeassistant.exceptions import PlatformNotReady
-from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
+from homeassistant.core import HassJob, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-import luxor_openapi_asyncio
-from luxor_openapi_asyncio.api import themes_api
-
-from .const import (
-    DEFAULT_NAME,
-    DOMAIN,
-    SCENE,
-    REQUEST_REFRESH_DELAY,
-    CONF_THEME_INTERVAL,
-    DEFAULT_THEME_INTERVAL,
-)
-
-_LOGGER = logging.getLogger(__name__)
-
-async def async_setup_entry(hass, entry, async_add_entities):
-    controller = hass.data[DOMAIN][entry.entry_id]
-
-    scene_coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="{}_{}".format(DOMAIN, SCENE),
-        update_method=partial(async_fetch_scenes, controller),
-        update_interval=timedelta(seconds=entry.data.get(CONF_THEME_INTERVAL, DEFAULT_THEME_INTERVAL)),
-        request_refresh_debouncer=Debouncer(
-            hass, _LOGGER, cooldown=REQUEST_REFRESH_DELAY, immediate=True
-        ),
-    )
-    await scene_coordinator.async_refresh()
-
-    if not scene_coordinator.last_update_success:
-        raise PlatformNotReady
-
-    scene_coordinator.async_add_listener(
-        partial(
-            async_update_scenes,
-            hass,
-            controller,
-            {},
-            async_add_entities,
-            partial(LuxorScene, controller),
-        )
-    )
-    await scene_coordinator.async_refresh()
+from .api import LuxorError, LuxorTheme
+from .const import DOMAIN, SCENE_SETTLE_DELAY
+from .coordinator import LuxorConfigEntry, LuxorRuntimeData, LuxorThemeCoordinator
 
 
-async def async_fetch_scenes(controller):
-    api_instance = themes_api.ThemesApi(controller.api)
-    api_response = await api_instance.theme_list_get()
-    if api_response.theme_list is not None:
-        controller.scenes = {t.theme_index: t for t in api_response.theme_list}
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: LuxorConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add a scene for every theme, including themes added later."""
+    data = entry.runtime_data
+    known: set[int] = set()
+
+    @callback
+    def _add_new_themes() -> None:
+        new = [
+            LuxorScene(data, theme)
+            for index, theme in data.themes.data.themes.items()
+            if index not in known
+        ]
+        if new:
+            known.update(scene.theme_index for scene in new)
+            async_add_entities(new)
+
+    _add_new_themes()
+    entry.async_on_unload(data.themes.async_add_listener(_add_new_themes))
 
 
-@callback
-def async_update_scenes(
-    hass, controller, current_entities, async_add_entities, create_scene
-):
-    new_items = []
-    for scene_id, data in controller.scenes.items():
-        if scene_id in current_entities:
-            continue
-        scene = current_entities[scene_id] = create_scene(
-            data.theme_index, data.name, data.on_off
-        )
-        new_items.append(scene)
+class LuxorScene(CoordinatorEntity[LuxorThemeCoordinator], Scene):
+    """One Luxor theme."""
 
-    hass.async_create_task(async_remove_entities(controller, current_entities))
-
-    # add new entities
-    async_add_entities(new_items)
-
-
-async def async_remove_entities(controller, current_entities):
-    # clean up entities which are no longer present
-    for scene_id, entity in list(current_entities.items()):
-        if scene_id not in controller.scenes:
-            await entity.async_remove(force_remove=True)
-            del current_entities[scene_id]
-
-
-class LuxorScene(Scene):
-    def __init__(self, controller, theme_index, name, on_off):
-        self.controller = controller
-        self.theme_index = theme_index
-
-        self._attr_name = name
-        self._attr_unique_id = "{}{}".format(name, theme_index)
-    async def async_activate(self, **kwargs):  # pylint: disable=unused-argument
-        api_instance = themes_api.ThemesApi(self.controller.api)
-        # TODO: handle non-0 status codes
-        await api_instance.illuminate_theme(
-            luxor_openapi_asyncio.IlluminateThemeRequest(self.theme_index, 1)
-        )
+    def __init__(self, data: LuxorRuntimeData, theme: LuxorTheme) -> None:
+        super().__init__(data.themes)
+        self._data = data
+        self.theme_index = theme.index
+        self._initial_name = theme.name
+        # Same unique ID scheme as the original integration (name + index), so
+        # existing scene entities survive the switch to this fork.
+        self._attr_unique_id = f"{theme.name}{theme.index}"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, data.info.name)})
+        self._cancel_settle_refresh = None
 
     @property
-    def device_info(self):
-        return DeviceInfo(
-            identifiers={(DOMAIN, self.controller.name)},
-            name=self.controller.name,
+    def _theme(self) -> LuxorTheme | None:
+        return self.coordinator.data.themes.get(self.theme_index)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._theme is not None
+
+    @property
+    def name(self) -> str:
+        theme = self._theme
+        return theme.name if theme else self._initial_name
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        theme = self._theme
+        return {
+            "luxor_theme": self.theme_index,
+            "theme_on": bool(theme and theme.on),
+        }
+
+    async def async_activate(self, **kwargs: Any) -> None:
+        try:
+            await self._data.client.async_illuminate_theme(self.theme_index, True)
+        except LuxorError as err:
+            raise HomeAssistantError(str(err)) from err
+
+        # The controller never reports changes by itself (protocol 1.1): read
+        # back the group intensities now, and once more after the fixtures
+        # have settled.
+        await self._data.groups.async_request_refresh()
+        await self.coordinator.async_request_refresh()
+
+        if self._cancel_settle_refresh is not None:
+            self._cancel_settle_refresh()
+
+        @callback
+        def _refresh_later(_now) -> None:
+            self._cancel_settle_refresh = None
+            self.hass.async_create_task(self._data.groups.async_request_refresh())
+
+        self._cancel_settle_refresh = async_call_later(
+            self.hass,
+            SCENE_SETTLE_DELAY,
+            HassJob(_refresh_later, cancel_on_shutdown=True),
         )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._cancel_settle_refresh is not None:
+            self._cancel_settle_refresh()
+            self._cancel_settle_refresh = None
+        await super().async_will_remove_from_hass()

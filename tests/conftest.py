@@ -1,39 +1,59 @@
-# Fixtures allow you to replace functions with a Mock object. You can perform
-# many options via the Mock to reflect a particular behavior from the original
-# function that you want to see without going through the function's actual logic.
-# Fixtures can either be passed into tests as parameters, or if autouse=True, they
-# will automatically be used across all tests.
-#
-# Fixtures that are defined in conftest.py are available across all tests. You can also
-# define fixtures within a particular test file to scope them locally.
-#
-# pytest_homeassistant_custom_component provides some fixtures that are provided by
-# Home Assistant core. You can find those fixture definitions here:
-# https://github.com/MatthewFlamm/pytest-homeassistant-custom-component/blob/master/pytest_homeassistant_custom_component/common.py
-#
-# See here for more info: https://docs.pytest.org/en/latest/fixture.html (note that
-# pytest includes fixtures OOB which you can use as defined on this page)
+"""Shared fixtures."""
 from unittest.mock import patch
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.luxor.const import (
+    CONF_HOST,
+    CONF_SEND_INTERVAL,
+    DOMAIN,
+)
+
+from .fake_controller import FakeController
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
-# This fixture enables loading custom integrations in all tests.
-# Remove to enable selective use of this fixture
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
+    """Allow loading custom_components/luxor."""
     yield
 
 
-# This fixture is used to prevent HomeAssistant from attempting to create and dismiss persistent
-# notifications. These calls would fail without this fixture since the persistent_notification
-# integration is never loaded during a test.
-@pytest.fixture(name="skip_notifications", autouse=True)
-def skip_notifications_fixture():
-    """Skip notification calls."""
-    with patch("homeassistant.components.persistent_notification.async_create"), patch(
-        "homeassistant.components.persistent_notification.async_dismiss"
+@pytest.fixture
+def controller_kind() -> str:
+    return "luxor2"
+
+
+@pytest.fixture
+def controller(controller_kind) -> FakeController:
+    """Simulated controller used as the aiohttp session of the integration."""
+    fake = FakeController(controller_kind)
+    with patch(
+        "custom_components.luxor.async_get_clientsession", return_value=fake
+    ), patch(
+        "custom_components.luxor.config_flow.async_get_clientsession",
+        return_value=fake,
     ):
-        yield
+        yield fake
+
+
+@pytest.fixture
+def config_entry(controller) -> MockConfigEntry:
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=controller.name,
+        unique_id=controller.name,
+        data={CONF_HOST: "192.0.2.1"},
+        # Keep the tests fast; the default is the protocol's one second.
+        options={CONF_SEND_INTERVAL: 0.05},
+    )
+
+
+@pytest.fixture
+async def setup_integration(hass, config_entry):
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    return config_entry

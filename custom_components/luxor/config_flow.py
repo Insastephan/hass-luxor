@@ -1,85 +1,134 @@
-"""Adds config flow for Luxor."""
-from homeassistant import config_entries
-from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
+"""Config and options flow for the Luxor integration."""
+from __future__ import annotations
+
+from typing import Any
+
 import voluptuous as vol
 
-import luxor_openapi_asyncio
-from luxor_openapi_asyncio.api import controller_api
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from pprint import pprint
-
+from .api import ControllerInfo, LuxorClient, LuxorError
 from .const import (
-    CONF_HOST,
+    CONF_COALESCE_EXTINGUISH,
     CONF_GROUP_INTERVAL,
+    CONF_HOST,
+    CONF_REQUEST_TIMEOUT,
+    CONF_SEND_INTERVAL,
     CONF_THEME_INTERVAL,
-    DOMAIN,
-    PLATFORMS,
+    DEFAULT_COALESCE_EXTINGUISH,
     DEFAULT_GROUP_INTERVAL,
+    DEFAULT_REQUEST_TIMEOUT,
+    DEFAULT_SEND_INTERVAL,
     DEFAULT_THEME_INTERVAL,
+    DOMAIN,
 )
 
+GROUP_INTERVAL = vol.All(vol.Coerce(int), vol.Range(min=5, max=3600))
+THEME_INTERVAL = vol.All(vol.Coerce(int), vol.Range(min=60, max=86400))
 
-class LuxorFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Luxor."""
+
+class LuxorFlowHandler(ConfigFlow, domain=DOMAIN):
+    """Set up a Luxor controller."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
-    def __init__(self):
-        """Initialize."""
-        self._errors = {}
-
-    async def async_step_user(self, user_input=None):
-        """Handle a flow initialized by the user."""
-        self._errors = {}
-
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            info = await self._get_controller_details(user_input[CONF_HOST])
-            if info:
-                return self.async_create_entry(title=info.controller, data=user_input)
+            host = user_input[CONF_HOST].strip()
+            info = await self._async_probe(host)
+            if info is None:
+                errors["base"] = "cannot_connect"
             else:
-                self._errors["base"] = "host"
+                await self.async_set_unique_id(info.name)
+                self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+                return self.async_create_entry(
+                    title=info.name, data={**user_input, CONF_HOST: host}
+                )
 
-            return await self._show_config_form(user_input)
-
-        user_input = {}
-        # Provide defaults for form
-        user_input[CONF_HOST] = ""
-        user_input[CONF_GROUP_INTERVAL] = DEFAULT_GROUP_INTERVAL
-        user_input[CONF_THEME_INTERVAL] = DEFAULT_THEME_INTERVAL
-
-        return await self._show_config_form(user_input)
-
-    async def _show_config_form(self, user_input):  # pylint: disable=unused-argument
-        """Show the configuration form to edit location data."""
+        user_input = user_input or {}
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_HOST, default=user_input[CONF_HOST]): str,
-                    vol.Required(CONF_GROUP_INTERVAL, default=user_input[CONF_GROUP_INTERVAL]): vol.All(vol.Coerce(int), vol.Range(min=5)),
-                    vol.Required(CONF_THEME_INTERVAL, default=user_input[CONF_THEME_INTERVAL]): vol.All(vol.Coerce(int), vol.Range(min=60))
+                    vol.Required(CONF_HOST, default=user_input.get(CONF_HOST, "")): str,
+                    vol.Required(
+                        CONF_GROUP_INTERVAL,
+                        default=user_input.get(CONF_GROUP_INTERVAL, DEFAULT_GROUP_INTERVAL),
+                    ): GROUP_INTERVAL,
+                    vol.Required(
+                        CONF_THEME_INTERVAL,
+                        default=user_input.get(CONF_THEME_INTERVAL, DEFAULT_THEME_INTERVAL),
+                    ): THEME_INTERVAL,
                 }
             ),
-            errors=self._errors,
+            errors=errors,
         )
 
-    async def _get_controller_details(self, host):
-        """Return true if credentials is valid."""
+    async def _async_probe(self, host: str) -> ControllerInfo | None:
+        client = LuxorClient(async_get_clientsession(self.hass), host)
         try:
-            api_client = luxor_openapi_asyncio.ApiClient(
-                luxor_openapi_asyncio.Configuration(host="http://{}".format(host))
-            )
-            api_instance = controller_api.ControllerApi(api_client)
-
-            try:
-                api_response = await api_instance.controller_name()
-            except luxor_openapi_asyncio.ApiException as e:
-                return None
-            if api_response.status == 0:
-                return api_response
+            return await client.async_get_info()
+        except LuxorError:
             return None
-        except Exception:  # pylint: disable=broad-except
-            pass
-        return None
+        finally:
+            await client.async_close()
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return LuxorOptionsFlow()
+
+
+class LuxorOptionsFlow(OptionsFlow):
+    """Tune polling and the pace of commands sent to the controller."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        entry = self.config_entry
+
+        def current(key: str, default: Any) -> Any:
+            return entry.options.get(key, entry.data.get(key, default))
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GROUP_INTERVAL,
+                        default=current(CONF_GROUP_INTERVAL, DEFAULT_GROUP_INTERVAL),
+                    ): GROUP_INTERVAL,
+                    vol.Required(
+                        CONF_THEME_INTERVAL,
+                        default=current(CONF_THEME_INTERVAL, DEFAULT_THEME_INTERVAL),
+                    ): THEME_INTERVAL,
+                    vol.Required(
+                        CONF_SEND_INTERVAL,
+                        default=current(CONF_SEND_INTERVAL, DEFAULT_SEND_INTERVAL),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=5.0)),
+                    vol.Required(
+                        CONF_REQUEST_TIMEOUT,
+                        default=current(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=15.0)),
+                    vol.Required(
+                        CONF_COALESCE_EXTINGUISH,
+                        default=current(
+                            CONF_COALESCE_EXTINGUISH, DEFAULT_COALESCE_EXTINGUISH
+                        ),
+                    ): bool,
+                }
+            ),
+        )
