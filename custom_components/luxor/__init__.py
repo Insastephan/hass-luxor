@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_SEND_INTERVAL,
     DEFAULT_THEME_INTERVAL,
     DOMAIN,
+    LIGHT_DEVICE_DOMAIN,
     MANUFACTURER,
     PLATFORMS,
 )
@@ -113,3 +114,24 @@ async def async_unload_entry(hass: HomeAssistant, entry: LuxorConfigEntry) -> bo
     if unloaded:
         await entry.runtime_data.client.async_close()
     return unloaded
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: LuxorConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing the device of a group the controller no longer has.
+
+    The controller device itself and groups that still exist stay protected,
+    otherwise Home Assistant would only recreate them on the next poll.
+    """
+    groups = entry.runtime_data.groups.data or {}
+    for domain, identifier in device_entry.identifiers:
+        if domain == DOMAIN:
+            return False
+        if domain == LIGHT_DEVICE_DOMAIN:
+            try:
+                number = int(identifier)
+            except (TypeError, ValueError):
+                return True
+            return number not in groups
+    return True
