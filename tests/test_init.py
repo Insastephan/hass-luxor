@@ -164,3 +164,29 @@ async def test_no_flicker_while_other_groups_are_queued(
         assert states, entity_id
         assert STATE_OFF not in states, (entity_id, states)
         assert hass.states.get(entity_id).state == STATE_ON
+
+
+async def test_only_devices_of_removed_groups_can_be_deleted(
+    hass, controller, setup_integration
+):
+    from custom_components.luxor import async_remove_config_entry_device
+    from custom_components.luxor.const import LIGHT_DEVICE_DOMAIN
+
+    entry = setup_integration
+    del controller.groups[3]  # group deleted in the Luxor app
+    await entry.runtime_data.groups.async_refresh()
+    await hass.async_block_till_done()
+
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+
+    def device_with(identifier):
+        return next(d for d in devices if identifier in d.identifiers)
+
+    removed_group = device_with((LIGHT_DEVICE_DOMAIN, 3))
+    existing_group = device_with((LIGHT_DEVICE_DOMAIN, 1))
+    controller_device = device_with((DOMAIN, "lxtwo-275610"))
+
+    assert await async_remove_config_entry_device(hass, entry, removed_group)
+    assert not await async_remove_config_entry_device(hass, entry, existing_group)
+    assert not await async_remove_config_entry_device(hass, entry, controller_device)
+    assert hass.states.get("light.hedge").state == "unavailable"

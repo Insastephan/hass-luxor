@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.2 (unreleased)
+
+### Added
+- Devices of groups that were deleted on the controller can now be removed in Home Assistant (*Settings → Devices → … → Delete*). Devices of existing groups and the controller itself stay protected.
+
+## 0.1.1 (2026-11-03)
 
 ### Fixed
 - A switching command that is retried after a missing answer now keeps the one-second spacing, because the controller may already have carried out the first attempt.
