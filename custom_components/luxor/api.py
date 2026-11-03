@@ -1,18 +1,17 @@
-"""Minimal, robust client for the FXLuminaire Luxor HTTP/JSON protocol.
+"""Minimal, robust client for FXLuminaire Luxor controllers (local HTTP/JSON).
 
-Implements the behaviour required by the "Luxor Wi-Fi Module Protocol"
-(Rev. 31):
+Behaviour of the controller this client is built around:
 
-* The controller is a slow master/slave device. All requests are serialized
-  through one queue per controller.
-* Requests that send data to the lights (IlluminateGroup, IlluminateTheme,
-  ExtinguishAll, ...) may only be sent once per second (section 2.6).
-* The controller answers with ``Connection: close``; connections are never
-  reused (section 2.2).
+* It is a slow master/slave device that never reports changes on its own.
+  All requests are serialized through one queue per controller.
+* Commands that make it send data to the fixtures (IlluminateGroup,
+  IlluminateTheme, ExtinguishAll, ...) must be at least one second apart,
+  otherwise some of them are dropped.
+* It answers with ``Connection: close``; connections are never reused.
 * A request that is not answered is retried; after the configured number of
-  attempts an error is raised (section 2.6).
-* Every response carries a ``Status``; anything but 0 is an error and the
-  payload must be ignored (sections 2.5 and 17).
+  attempts an error is raised and all queued changes fail right away.
+* Responses carry a ``Status``; anything but 0 is an error and the payload is
+  ignored.
 
 Group intensity changes are queued per group: if a group already has a
 pending change, the newest value replaces the older one ("last write wins").
@@ -121,7 +120,7 @@ MODEL_NAMES = {
 
 
 def controller_type_from_name(name: str) -> ControllerType:
-    """Derive the controller family from its reported name (section 12.1)."""
+    """Derive the controller family from its reported name."""
     lowered = (name or "").lower()
     if lowered.startswith("lxtwo"):
         return ControllerType.LUXOR2
@@ -193,7 +192,7 @@ def _int(value: Any, default: int = 0) -> int:
 
 
 def parse_groups(data: dict) -> dict[int, LuxorGroup]:
-    """Parse GroupListGet for all controller families (section 5.5).
+    """Parse GroupListGet for all controller families.
 
     ZD controllers use ``GroupNumber``/``Intensity``; ZDC and Luxor 2 use
     ``Grp``/``Inten``/``Colr``. Both forms are accepted.
@@ -215,7 +214,7 @@ def parse_groups(data: dict) -> dict[int, LuxorGroup]:
 
 
 def parse_themes(data: dict) -> ThemeList:
-    """Parse ThemeListGet (section 6.5)."""
+    """Parse ThemeListGet."""
     themes: dict[int, LuxorTheme] = {}
     for item in data.get("ThemeList") or []:
         if not isinstance(item, dict):
@@ -232,7 +231,7 @@ def parse_themes(data: dict) -> ThemeList:
 
 
 def parse_colors(data: dict) -> dict[int, tuple[int, int]]:
-    """Parse ColorListGet, dropping unused slots (section 9.2)."""
+    """Parse ColorListGet, dropping unused slots (hue/sat 360/100)."""
     colors: dict[int, tuple[int, int]] = {}
     for item in data.get("ColorList") or []:
         if not isinstance(item, dict):
@@ -309,6 +308,7 @@ class LuxorClient:
         data: Any = None
         try:
             for attempt in range(1, self._attempts + 1):
+                attempt_started = time.monotonic()
                 try:
                     async with self._session.post(
                         url,
@@ -329,7 +329,9 @@ class LuxorClient:
                         err,
                     )
                     if attempt < self._attempts:
-                        await asyncio.sleep(0.2 * attempt)
+                        await asyncio.sleep(
+                            self._retry_delay(is_send, attempt, attempt_started)
+                        )
             else:
                 raise LuxorConnectionError(
                     f"Luxor {command}: no answer from {self._base_url} after "
@@ -342,10 +344,27 @@ class LuxorClient:
 
         if not isinstance(data, dict):
             raise LuxorConnectionError(f"Luxor {command}: unexpected answer {data!r}")
+        if "Status" not in data:
+            # Every documented answer carries a status. Be lenient with
+            # firmware that omits it, but leave a trace for debugging.
+            _LOGGER.debug("Luxor %s: answer without Status: %r", command, data)
         status = data.get("Status", 0)
         if status != 0:
             raise LuxorStatusError(command, status)
         return data
+
+    def _retry_delay(self, is_send: bool, attempt: int, attempt_started: float) -> float:
+        """Pause before the next attempt.
+
+        A switching command that got no answer may still have been carried
+        out by the controller, so the retry keeps the same minimum spacing
+        as two separate switching commands.
+        """
+        delay = 0.2 * attempt
+        if is_send:
+            spacing = attempt_started + self._send_interval - time.monotonic()
+            delay = max(delay, spacing)
+        return max(0.0, delay)
 
     # -------------------------------------------------------------- reading
 
@@ -454,17 +473,21 @@ class LuxorClient:
                 batch = dict(self._pending)
                 self._pending.clear()
                 waiters = [f for g in batch for f in self._waiters.pop(g, [])]
-                await self._send(batch, waiters, "ExtinguishAll", None)
+                error = await self._send(batch, waiters, "ExtinguishAll", None)
+                if isinstance(error, LuxorConnectionError):
+                    self._fail_pending(error)
                 continue
             group = next(iter(self._pending))
             intensity = self._pending.pop(group)
             waiters = self._waiters.pop(group, [])
-            await self._send(
+            error = await self._send(
                 {group: intensity},
                 waiters,
                 "IlluminateGroup",
                 {"GroupNumber": group, "Intensity": intensity},
             )
+            if isinstance(error, LuxorConnectionError):
+                self._fail_pending(error)
 
     def _should_extinguish_all(self) -> bool:
         return (
@@ -481,7 +504,7 @@ class LuxorClient:
         waiters: list[asyncio.Future],
         command: str,
         payload: dict | None,
-    ) -> None:
+    ) -> Exception | None:
         self._inflight.update(batch)
         error: Exception | None = None
         try:
@@ -500,6 +523,27 @@ class LuxorClient:
                 future.set_result(None)
             else:
                 future.set_exception(error)
+        return error
+
+    def _fail_pending(self, error: Exception) -> None:
+        """Release every queued change with the given error.
+
+        Used when the controller stopped answering: otherwise each queued
+        group would wait through all retries again, which can block callers
+        for minutes.
+        """
+        if not self._pending:
+            return
+        _LOGGER.debug(
+            "Luxor controller unreachable, dropping %s queued change(s)",
+            len(self._pending),
+        )
+        groups = list(self._pending)
+        self._pending.clear()
+        for group in groups:
+            for future in self._waiters.pop(group, []):
+                if not future.done():
+                    future.set_exception(error)
 
     async def async_close(self) -> None:
         """Stop the queue and fail all waiting callers."""
