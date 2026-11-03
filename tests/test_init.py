@@ -25,7 +25,9 @@ async def test_setup_creates_entities(hass, controller, setup_integration):
     assert hass.states.get("light.wall").state == STATE_OFF
     assert hass.states.get("scene.lxtwo_275610_all_on") is not None
 
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "lxtwo-275610")})
+    device_id = setup_integration.runtime_data.controller_device_id
+    device = dr.async_get(hass).async_get(device_id)
+    assert (DOMAIN, "lxtwo-275610") in device.identifiers
     assert device.model == "Luxor 2"
 
 
