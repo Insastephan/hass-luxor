@@ -1,14 +1,12 @@
 {
-  "codeowners": ["@dcramer"],
+  "domain": "luxor",
+  "name": "FXLuminaire Luxor",
+  "codeowners": ["@Insastephan"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/dcramer/hass-luxor",
-  "domain": "luxor",
+  "documentation": "https://github.com/Insastephan/hass-luxor",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/dcramer/hass-luxor/issues",
-  "name": "FXLuminaire Luxor",
-  "requirements": [
-    "luxor-openapi-asyncio==0.1.0"
-  ],
-  "version": "0.0.2"
+  "issue_tracker": "https://github.com/Insastephan/hass-luxor/issues",
+  "requirements": [],
+  "version": "0.1.0"
 }

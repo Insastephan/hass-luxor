@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Luxor",
+        "description": "Einen FXLuminaire-Luxor-Controller (ZD, ZDC oder Luxor 2) im lokalen Netzwerk verbinden.",
+        "data": {
+          "host": "Host",
+          "group_interval": "Abfrageintervall Lampen (Sekunden)",
+          "theme_interval": "Abfrageintervall Szenen (Sekunden)"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Controllers, z. B. 192.168.1.50"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Keine Verbindung zum Controller möglich."
+    },
+    "abort": {
+      "already_configured": "Dieser Controller ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Luxor-Optionen",
+        "data": {
+          "group_interval": "Abfrageintervall Lampen (Sekunden)",
+          "theme_interval": "Abfrageintervall Szenen (Sekunden)",
+          "send_interval": "Mindestpause zwischen Schaltbefehlen (Sekunden)",
+          "request_timeout": "Zeitlimit pro Anfrage (Sekunden)",
+          "coalesce_extinguish": "Alle Gruppen mit einem Befehl ausschalten"
+        },
+        "data_description": {
+          "send_interval": "Das Luxor-Protokoll erlaubt einen Schaltbefehl pro Sekunde. Erhöhen, falls Befehle verloren gehen.",
+          "request_timeout": "Jede Anfrage wird bis zu 3-mal versucht. Erhöhen bei Controllern mit schwachem WLAN.",
+          "coalesce_extinguish": "Werden alle Gruppen gleichzeitig ausgeschaltet (z. B. über eine Lampengruppe), wird ein einziger \"Alles aus\"-Befehl statt eines Befehls pro Gruppe gesendet."
+        }
+      }
+    }
+  }
+}

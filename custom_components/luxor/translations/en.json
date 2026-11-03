@@ -1,18 +1,43 @@
 {
-    "config": {
-        "step": {
-            "user": {
-                "title": "Luxor",
-                "description": "Integration with FXLuminaire's Luxor lighting system.",
-                "data": {
-                    "host": "Host",
-                    "group_interval": "Light Update Interval (sec)",
-                    "theme_interval": "Scene Update Interval (sec)"
-                }
-            }
+  "config": {
+    "step": {
+      "user": {
+        "title": "Luxor",
+        "description": "Connect a FXLuminaire Luxor controller (ZD, ZDC or Luxor 2) on your local network.",
+        "data": {
+          "host": "Host",
+          "group_interval": "Light update interval (seconds)",
+          "theme_interval": "Scene update interval (seconds)"
         },
-        "error": {
-            "host": "Unable to connect to controller."
+        "data_description": {
+          "host": "IP address or host name of the controller, e.g. 192.168.1.50"
         }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the controller."
+    },
+    "abort": {
+      "already_configured": "This controller is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Luxor options",
+        "data": {
+          "group_interval": "Light update interval (seconds)",
+          "theme_interval": "Scene update interval (seconds)",
+          "send_interval": "Minimum pause between switching commands (seconds)",
+          "request_timeout": "Timeout per request (seconds)",
+          "coalesce_extinguish": "Switch all groups off with one command"
+        },
+        "data_description": {
+          "send_interval": "The Luxor protocol allows one switching command per second. Increase this if commands get lost.",
+          "request_timeout": "Each request is tried up to 3 times. Increase this for controllers on a weak Wi-Fi connection.",
+          "coalesce_extinguish": "When every group is switched off at once (for example by a light group), send a single \"all off\" command instead of one command per group."
+        }
+      }
+    }
+  }
 }
