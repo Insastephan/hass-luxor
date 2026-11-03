@@ -23,7 +23,7 @@ async def test_setup_creates_entities(hass, controller, setup_integration):
     assert hedge.state == STATE_ON
     assert hedge.attributes[ATTR_BRIGHTNESS] == 102  # 40 %
     assert hass.states.get("light.wall").state == STATE_OFF
-    assert hass.states.get("scene.all_on") is not None
+    assert hass.states.get("scene.lxtwo_275610_all_on") is not None
 
     device = dr.async_get(hass).async_get_device({(DOMAIN, "lxtwo-275610")})
     assert device.model == "Luxor 2"
@@ -113,7 +113,7 @@ async def test_dmx_group_cannot_be_switched(hass, controller, setup_integration)
 
 async def test_scene_updates_lights_immediately(hass, controller, setup_integration):
     await hass.services.async_call(
-        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.all_on"}, blocking=True
+        "scene", "turn_on", {ATTR_ENTITY_ID: "scene.lxtwo_275610_all_on"}, blocking=True
     )
     await hass.async_block_till_done()
     assert ("IlluminateTheme", {"ThemeIndex": 0, "OnOff": 1}) in controller.commands()
@@ -127,7 +127,7 @@ async def test_scene_error_is_reported(hass, controller, setup_integration):
     controller.status["IlluminateTheme"] = 251
     with pytest.raises(HomeAssistantError, match="Bad theme Index"):
         await hass.services.async_call(
-            "scene", "turn_on", {ATTR_ENTITY_ID: "scene.all_on"}, blocking=True
+            "scene", "turn_on", {ATTR_ENTITY_ID: "scene.lxtwo_275610_all_on"}, blocking=True
         )
 
 
