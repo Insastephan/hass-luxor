@@ -10,6 +10,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 
@@ -137,3 +138,29 @@ async def test_unload(hass, setup_integration):
     assert await hass.config_entries.async_unload(setup_integration.entry_id)
     await hass.async_block_till_done()
     assert setup_integration.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_no_flicker_while_other_groups_are_queued(
+    hass, controller, setup_integration
+):
+    """A group that was already switched must not show its old state again
+    while later groups are still waiting in the queue."""
+    entities = ["light.wall", "light.tree"]
+    seen: dict[str, list[str]] = {e: [] for e in entities}
+
+    @callback
+    def _record(event):
+        if event.data["entity_id"] in seen and event.data["new_state"]:
+            seen[event.data["entity_id"]].append(event.data["new_state"].state)
+
+    unsub = hass.bus.async_listen("state_changed", _record)
+    await hass.services.async_call(
+        "light", "turn_on", {ATTR_ENTITY_ID: entities}, blocking=True
+    )
+    await hass.async_block_till_done()
+    unsub()
+
+    for entity_id, states in seen.items():
+        assert states, entity_id
+        assert STATE_OFF not in states, (entity_id, states)
+        assert hass.states.get(entity_id).state == STATE_ON

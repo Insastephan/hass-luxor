@@ -152,8 +152,19 @@ async def test_expected_intensity_while_queued():
     assert client.expected_intensity(2) == 70
     assert client.busy
     await future
-    assert client.expected_intensity(2) is None
     assert not client.busy
+    # Acknowledged, but not read back yet: still reported as expected value.
+    assert client.expected_intensity(2) == 70
+    await client.async_get_groups()
+    assert client.expected_intensity(2) is None
+
+
+async def test_failed_command_is_not_confirmed():
+    controller, client = make("luxor2")
+    controller.status["IlluminateGroup"] = 242
+    with pytest.raises(LuxorStatusError):
+        await client.async_set_group_intensity(2, 70)
+    assert client.expected_intensity(2) is None
 
 
 async def test_dropped_connection_is_retried():

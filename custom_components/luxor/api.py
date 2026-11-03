@@ -276,6 +276,10 @@ class LuxorClient:
         self._pending: dict[int, int] = {}
         # Values currently being sent; still shown as the expected state.
         self._inflight: dict[int, int] = {}
+        # Values the controller acknowledged since the group list was last
+        # read. They bridge the gap until the next GroupListGet, so a group
+        # does not flip back to its old state while others are still queued.
+        self._confirmed: dict[int, int] = {}
         self._waiters: dict[int, list[asyncio.Future]] = {}
         self._worker: asyncio.Task | None = None
         self._closed = False
@@ -375,6 +379,9 @@ class LuxorClient:
 
     async def async_get_groups(self) -> dict[int, LuxorGroup]:
         groups = parse_groups(await self.request("GroupListGet"))
+        # Requests are serialized, so this read already reflects every
+        # acknowledged command.
+        self._confirmed.clear()
         self.known_groups = set(groups)
         return groups
 
@@ -425,10 +432,14 @@ class LuxorClient:
         await self.queue_group_intensity(group, intensity)
 
     def expected_intensity(self, group: int) -> int | None:
-        """Intensity a group is about to get, or None if nothing is queued."""
-        if group in self._pending:
-            return self._pending[group]
-        return self._inflight.get(group)
+        """Intensity a group is about to get or has just been given.
+
+        None means the last group list read is current for this group.
+        """
+        for source in (self._pending, self._inflight, self._confirmed):
+            if group in source:
+                return source[group]
+        return None
 
     @property
     def busy(self) -> bool:
@@ -477,6 +488,8 @@ class LuxorClient:
             await self.request(command, payload)
         except Exception as err:  # noqa: BLE001 - handed to the waiting callers
             error = err
+        else:
+            self._confirmed.update(batch)
         finally:
             for group in batch:
                 self._inflight.pop(group, None)
@@ -506,3 +519,4 @@ class LuxorClient:
         self._waiters.clear()
         self._pending.clear()
         self._inflight.clear()
+        self._confirmed.clear()
