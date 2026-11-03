@@ -1,0 +1,64 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check the [Troubleshooting](https://github.com/Insastephan/hass-luxor#troubleshooting) section first, and search the existing issues.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: controller
+    attributes:
+      label: Controller type
+      description: Shown as the model on the controller device in Home Assistant.
+      options:
+        - Luxor 2 (lxtwo-…)
+        - Luxor ZDC (lxzdc-…)
+        - Luxor ZD (luxor-…)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: connection
+    attributes:
+      label: How is the controller connected?
+      placeholder: e.g. LAN cable, Wi-Fi
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: HACS → FXLuminaire Luxor
+      placeholder: e.g. v0.1.2
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About
+      placeholder: e.g. 2026.10.4
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Turn on the light group "Garden"
+        2. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: |
+        Settings → Devices & services → FXLuminaire Luxor → Enable debug logging, reproduce the problem, then Disable debug logging and paste the relevant part here. Remove anything you do not want to share.
+      render: text
+    validations:
+      required: true

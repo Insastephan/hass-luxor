@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.2 (unreleased)
+## Unreleased
+
+### Documentation
+- README: how the integration behaves in Home Assistant, tips and examples (themes, light groups, colors), troubleshooting and debug logging.
+- New issue forms for bug reports, ZD/ZDC controller reports and feature requests.
+
+## 0.1.2 (2026-11-03)
 
 ### Added
 - Devices of groups that were deleted on the controller can now be removed in Home Assistant (*Settings → Devices → … → Delete*). Devices of existing groups and the controller itself stay protected.

@@ -1,0 +1,47 @@
+name: Controller report (ZD / ZDC)
+description: Tell us whether the integration works with your Luxor ZD or ZDC controller
+labels: [controller-report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Support for ZD and ZDC controllers is built without access to such hardware. A short report, good or bad, helps a lot.
+  - type: dropdown
+    id: controller
+    attributes:
+      label: Controller type
+      options:
+        - Luxor ZD (monochrome)
+        - Luxor ZDC (color)
+        - Other / not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works?
+      options:
+        - label: Setup found the controller
+        - label: All groups appear as lights
+        - label: Switching on and off
+        - label: Brightness
+        - label: Colors (ZDC only)
+        - label: Themes appear as scenes and can be activated
+  - type: textarea
+    id: problems
+    attributes:
+      label: What does not work?
+      placeholder: Leave empty if everything works.
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: e.g. v0.1.2
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log (recommended)
+      description: Settings → Devices & services → FXLuminaire Luxor → Enable debug logging, restart or reload the integration, then Disable debug logging and paste the log here.
+      render: text
