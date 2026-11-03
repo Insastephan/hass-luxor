@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1 (unreleased)
+
+### Fixed
+- A switching command that is retried after a missing answer now keeps the one-second spacing, because the controller may already have carried out the first attempt.
+- When the controller stops answering, all other queued changes fail right away instead of each waiting through its own retries (which could block a light group for over a minute).
+
+### Changed
+- Answers without a status field are still accepted, but logged at debug level.
+
+## 0.1.0 (2026-11-03)
 
 First release of the fork.
 

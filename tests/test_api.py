@@ -210,3 +210,59 @@ async def test_close_fails_pending_callers():
     await client.async_close()
     with pytest.raises(Exception):
         await future
+
+
+async def test_retry_of_switching_command_keeps_spacing():
+    """A switching command without answer may have been executed, so the retry
+    must respect the minimum spacing as well."""
+    controller, client = make("luxor2")
+    controller.disconnect["IlluminateGroup"] = 1
+    await client.async_set_group_intensity(1, 100)
+    times = controller.times("IlluminateGroup")
+    assert len(times) == 2
+    assert times[1] - times[0] >= 0.19
+
+
+async def test_retry_of_read_is_quick():
+    controller, client = make("luxor2", send_interval=5.0)
+    controller.disconnect["GroupListGet"] = 1
+    start = asyncio.get_running_loop().time()
+    await client.async_get_groups()
+    assert asyncio.get_running_loop().time() - start < 1.0
+
+
+async def test_unreachable_controller_fails_whole_queue_fast():
+    controller, client = make("luxor2", coalesce_extinguish=False, attempts=3)
+    controller.disconnect["IlluminateGroup"] = 100
+    results = await asyncio.gather(
+        client.async_set_group_intensity(1, 100),
+        client.async_set_group_intensity(2, 100),
+        client.async_set_group_intensity(3, 100),
+        return_exceptions=True,
+    )
+    assert all(isinstance(r, LuxorConnectionError) for r in results)
+    # Only the first group went through its retries; the others were dropped.
+    assert len(controller.commands("IlluminateGroup")) == 3
+    assert not client.busy
+    assert all(client.expected_intensity(g) is None for g in (1, 2, 3))
+
+
+async def test_status_error_does_not_drop_the_queue():
+    controller, client = make("luxor2", coalesce_extinguish=False)
+    results = await asyncio.gather(
+        client.async_set_group_intensity(42, 100),  # unknown group: status 242
+        client.async_set_group_intensity(1, 100),
+        return_exceptions=True,
+    )
+    assert isinstance(results[0], LuxorStatusError)
+    assert results[1] is None
+    assert controller.groups[1]["intensity"] == 100
+
+
+async def test_answer_without_status_is_accepted(caplog):
+    controller, client = make("luxor2")
+    controller._cmd_ControllerName = lambda payload: {"Controller": "lxtwo-1"}
+    with caplog.at_level("DEBUG", logger="custom_components.luxor.api"):
+        info = await client.async_get_info()
+    assert info.name == "lxtwo-1"
+    assert "answer without Status" in caplog.text
