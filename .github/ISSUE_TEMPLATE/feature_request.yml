@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an idea for this integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: Describe what you are trying to achieve, not only the solution you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Your idea
+  - type: dropdown
+    id: controller
+    attributes:
+      label: Controller type
+      options:
+        - Luxor 2
+        - Luxor ZDC
+        - Luxor ZD
+        - Not relevant

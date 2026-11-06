@@ -54,6 +54,99 @@ Switching from dcramer/hass-luxor: remove that repository from HACS **without** 
 
 Switching many groups one by one takes about a second per group. For several groups at once, a Luxor theme (scene) is faster: it is a single command.
 
+## How it works in Home Assistant
+
+**Lights.** Each Luxor group becomes a light named after the group. Extra attributes:
+
+| Attribute | Meaning |
+|---|---|
+| `luxor_group` | Group number on the controller |
+| `luxor_color` | Color slot of the group (0 = monochrome, 1–250 = color list, 251–260 = color wheel) |
+| `dmx_control` | `true` while the group is under DMX control (Luxor 2); it cannot be switched then |
+| `color_wheel` | `true` if the group runs a color wheel; Home Assistant then shows no fixed color |
+
+**Scenes.** Each Luxor theme becomes a scene. On a new installation, Home Assistant puts the controller name in front, so a theme "All On" on controller `lxtwo-1234` becomes `scene.lxtwo_1234_all_on`. Existing installations keep their scene IDs. Attributes: `luxor_theme` (theme number) and `theme_on`.
+
+**Adding and removing groups.** A group you create in the Luxor app shows up as a new light on the next update (60 s by default), without a restart. A group you delete there becomes *unavailable*; you can then delete its device under *Settings → Devices & services → Devices*.
+
+**Colors.** On color controllers, groups with color fixtures get a color picker. The controller keeps colors in a list of 250 slots: a color that is already in the list is reused, a new one takes a free slot.
+
+**Changes made elsewhere.** The controller never reports changes by itself. Switching from the Luxor app, a controller schedule or the facepack shows up in Home Assistant on the next update. Lower the *Light update interval* (for example to 20 s) if you want that sooner.
+
+## Tips and examples
+
+### Switch many groups at once: use a theme
+
+Every switching command takes about a second, so turning on ten groups one by one takes about ten seconds. A Luxor theme does the same with **one** command. Build the combinations you need as themes in the Luxor app and call the scenes from Home Assistant.
+
+A power button that toggles the whole garden. `light.garden_all` is a light group you create in Home Assistant with your Luxor lights:
+
+```yaml
+alias: Garden on/off
+mode: single
+sequence:
+  - if:
+      - condition: state
+        entity_id: light.garden_all
+        state: "on"
+    then:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.lxtwo_1234_all_off
+    else:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.lxtwo_1234_all_on
+```
+
+Make sure your "off" theme switches off **every** group your "on" theme switches on. Otherwise some groups stay lit after "off".
+
+### Light groups in Home Assistant
+
+You can put Luxor lights into a Home Assistant light group. Turning it on or off sends one command per group, about one per second. If the group contains **every** group of the controller, "off" becomes a single "all off" command (option *Switch all groups off with one command*).
+
+### Set a color
+
+```yaml
+action: light.turn_on
+target:
+  entity_id: light.hedge_front
+data:
+  hs_color: [240, 100]   # hue 0-360, saturation 0-100
+  brightness_pct: 80
+```
+
+Pick saturation 100 for strong colors; lower values give pastel shades.
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| Setup says it cannot connect | The controller's IP address, and that Home Assistant can reach it on port 80. A fixed IP address (DHCP reservation) for the controller avoids trouble later. |
+| Lights become *unavailable* | The controller did not answer three attempts in a row. Check its network connection. On weak Wi-Fi, raise *Timeout per request*. Lights recover by themselves once the controller answers again. |
+| Switching many lights is slow | Expected: one command per second. Use a theme instead (see above). |
+| Some commands still get lost | Raise *Minimum pause between switching commands*, for example to 1.5 s. |
+| Error "under DMX control" | The group is controlled by DMX right now. Switch it from your DMX system, or end DMX control first. |
+| A light shows no color although it is lit | The group runs a color wheel. Its color changes over time, so there is no single color to show. |
+| A group was deleted in the Luxor app but is still listed | It shows as *unavailable*. Delete the device under *Settings → Devices & services → Devices*. |
+
+### Debug logging
+
+To see what the integration sends and receives, open *Settings → Devices & services → FXLuminaire Luxor*, choose **Enable debug logging**, reproduce the problem, then choose **Disable debug logging**. Home Assistant offers the log as a download.
+
+Or in `configuration.yaml`:
+
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.luxor: debug
+```
+
+### Reporting a problem
+
+Please [open an issue](https://github.com/Insastephan/hass-luxor/issues/new/choose) and attach a debug log. The form asks for your controller type, which helps a lot, especially for ZD and ZDC controllers.
+
 ## Credits and license
 
 Originally written by [David Cramer](https://github.com/dcramer), based on the integration blueprint by [Joakim Sørensen](https://github.com/ludeeus). MIT licensed, see [LICENSE](LICENSE).
